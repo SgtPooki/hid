@@ -673,6 +673,33 @@ static void *read_thread(void *param)
 	return NULL;
 }
 
+/* \p path must be one of:
+     - in format 'DevSrvsID:<RegistryEntryID>' (as returned by hid_enumerate);
+     - a valid path to an IOHIDDevice in the IOService plane (as returned by IORegistryEntryGetPath,
+       e.g.: "IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/EHC1@1D,7/AppleUSBEHCI/PLAYSTATION(R)3 Controller@fd120000/IOUSBInterface@0/IOUSBHIDDriver");
+   Second format is for compatibility with paths accepted by older versions of HIDAPI.
+*/
+static io_registry_entry_t hid_open_service_registry_from_path(const char *path)
+{
+	if (path == NULL)
+		return MACH_PORT_NULL;
+
+	/* Get the IORegistry entry for the given path */
+	if (strncmp("DevSrvsID:", path, 10) == 0) {
+		char *endptr;
+		uint64_t entry_id = strtoull(path + 10, &endptr, 10);
+		if (*endptr == '\0') {
+			return IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(entry_id));
+		}
+	}
+	else {
+		/* Fallback to older format of the path */
+		return IORegistryEntryFromPath(kIOMainPortDefault, path);
+	}
+
+	return MACH_PORT_NULL;
+}
+
 /* hid_open_path()
  *
  * path must be a valid path to an IOHIDDevice in the IOService plane
@@ -690,7 +717,7 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
 		return NULL;
 
 	/* Get the IORegistry entry for the given path */
-	entry = IORegistryEntryFromPath(kIOMasterPortDefault, path);
+	entry = hid_open_service_registry_from_path(path);
 	if (entry == MACH_PORT_NULL) {
 		/* Path wasn't valid (maybe device was removed?) */
 		goto return_error;
